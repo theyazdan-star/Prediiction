@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WC 2026 Knockout Predictor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+
+        .flag { width: 40px; height: 40px; border-radius: 9999px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); transition: transform 0.25s; flex-shrink: 0; }
+        .flag:hover { transform: scale(1.12); }
+
+        .trophy { animation: float 3s ease-in-out infinite; }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-16px); } }
+
+        /* ---------- Bracket tree ---------- */
+        .bracket-scroll { overflow-x: auto; padding-bottom: 1rem; -webkit-overflow-scrolling: touch; }
+        .bracket-scroll::-webkit-scrollbar { height: 8px; }
+        .bracket-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 8px; }
+
+        .bracket-grid {
+            display: grid;
+            grid-auto-flow: column;
+            align-items: stretch;
+            min-width: max-content;
+        }
+
+        .bracket-col { display: flex; flex-direction: column; justify-content: center; width: 220px; flex-shrink: 0; }
+        .bracket-col.wide { width: 240px; }
+
+        .col-label {
+            text-align: center;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: #71717a;
+            text-transform: uppercase;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid #27272a;
+            margin-bottom: 1rem;
+            position: sticky;
+            top: 0;
+            background: #09090b;
+            z-index: 10;
+        }
+        .col-label.accent-32   { border-color: #10b981; }
+        .col-label.accent-16   { border-color: #3b82f6; }
+        .col-label.accent-qf   { border-color: #f59e0b; }
+        .col-label.accent-sf   { border-color: #ef4444; }
+        .col-label.accent-final{ border-color: #71717a; }
+
+        .match-stack { display: flex; flex-direction: column; justify-content: space-around; flex: 1; }
+
+        .slot-pair { position: relative; display: flex; flex-direction: column; justify-content: center; padding: 0 1.25rem; }
+        .bracket-col.flip .slot-pair { padding: 0 1.25rem; }
+
+        /* Each team row gets a short horizontal stub line reaching out toward the next round */
+        .slot-pair .team-row { position: relative; }
+        .slot-pair .team-row::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 1.25rem;
+            height: 2px;
+            background: #3f3f46;
+            right: -1.25rem;
+        }
+        .bracket-col.flip .slot-pair .team-row::before { right: auto; left: -1.25rem; }
+
+        /* The vertical bridge connecting the two stubs, plus the single line continuing onward */
+        .slot-pair::after {
+            content: '';
+            position: absolute;
+            top: 25%;
+            bottom: 25%;
+            width: 2px;
+            background: #3f3f46;
+            right: -1.25rem;
+        }
+        .bracket-col.flip .slot-pair::after { right: auto; left: -1.25rem; }
+
+        .slot-pair::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            height: 2px;
+            width: 1.25rem;
+            background: #3f3f46;
+            right: -2.5rem;
+        }
+        .bracket-col.flip .slot-pair::before { right: auto; left: -2.5rem; }
+
+        .team-row {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.55rem 0.75rem;
+            border-radius: 0.9rem;
+            background: #18181b;
+            border: 1px solid #27272a;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin: 3px 0;
+        }
+        .team-row:hover:not(.locked) { background: #27272a; border-color: #52525b; }
+        .team-row.locked { opacity: 0.35; cursor: default; }
+        .team-row.picked { border-color: #22c55e; background: rgba(34,197,94,0.12); }
+        .team-row.picked .team-name { color: #4ade80; font-weight: 700; }
+        .team-row.eliminated { opacity: 0.4; text-decoration: line-through; }
+
+        .team-flag-mini { width: 26px; height: 26px; border-radius: 9999px; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .team-name { font-size: 0.85rem; font-weight: 600; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .champion-box {
+            background: linear-gradient(160deg, #18181b 0%, #0c0c0d 100%);
+            border: 2px solid #f59e0b;
+            border-radius: 1.25rem;
+            padding: 1.5rem 1.25rem;
+            text-align: center;
+            min-width: 200px;
+            box-shadow: 0 0 0 0 rgba(245,158,11,0);
+        }
+        .champion-box.revealed {
+            animation: championPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards, championGlow 2.4s ease-in-out infinite 0.6s;
+        }
+        @keyframes championPop { 0% { transform: scale(0.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes championGlow {
+            0%, 100% { box-shadow: 0 0 18px 2px rgba(245,158,11,0.25); }
+            50% { box-shadow: 0 0 32px 6px rgba(245,158,11,0.5); }
+        }
+        .champion-trophy { font-size: 3rem; animation: float 3s ease-in-out infinite; }
+        .champion-empty { opacity: 0.3; }
+
+        /* card entrance animation, staggered via inline --delay */
+        .anim-in { animation: slideFadeIn 0.45s ease backwards; animation-delay: var(--delay, 0s); }
+        @keyframes slideFadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .anim-in, .trophy, .champion-box.revealed, .champion-trophy { animation: none !important; }
+        }
+
+        /* confetti */
+        .confetti-piece {
+            position: fixed;
+            top: -10px;
+            width: 8px; height: 14px;
+            opacity: 0.9;
+            z-index: 9999;
+            pointer-events: none;
+            animation: confettiFall linear forwards;
+        }
+        @keyframes confettiFall {
+            to { transform: translateY(110vh) rotate(540deg); opacity: 0.4; }
+        }
+    </style>
+</head>
+<body class="bg-zinc-950 text-white min-h-screen">
+    <div class="max-w-[1700px] mx-auto p-4 sm:p-6">
+        <div class="flex justify-between items-center mb-8">
+            <div class="flex items-center gap-4">
+                <div class="text-4xl sm:text-5xl trophy">🏆</div>
+                <div>
+                    <h1 class="text-3xl sm:text-4xl font-bold">WC 2026</h1>
+                    <p class="text-zinc-400 text-sm sm:text-base">Knockout Stage Predictor</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Login Screen -->
+        <div id="login-screen" class="flex flex-col items-center justify-center min-h-[70vh]">
+            <div class="text-center">
+                <div class="inline-block p-8 bg-gradient-to-br from-amber-400 to-yellow-500 rounded-3xl mb-10 trophy">
+                    <span class="text-8xl">🏆</span>
+                </div>
+                <h2 class="text-4xl sm:text-5xl font-bold mb-3">Make Your Predictions</h2>
+                <p class="text-zinc-400 text-lg sm:text-xl">Predict all knockout matches</p>
+            </div>
+            <div class="mt-12 w-full max-w-md">
+                <input id="username-input" type="text" placeholder="Enter your username"
+                       class="w-full bg-zinc-900 border border-zinc-700 rounded-3xl px-8 py-6 text-xl text-center outline-none focus:border-emerald-500">
+                <button onclick="startPrediction()"
+                        class="mt-6 w-full bg-emerald-600 hover:bg-emerald-700 py-6 rounded-3xl text-xl font-semibold transition-colors">
+                    Start Predicting →
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Predictor -->
+        <div id="main-app" class="hidden">
+            <div class="flex justify-between items-center mb-6 flex-wrap gap-3">
+                <div id="progress" class="text-emerald-400 font-semibold text-lg sm:text-xl">0/31 matches predicted</div>
+                <button onclick="generateBracketImage()"
+                        class="flex items-center gap-3 bg-white text-black px-6 sm:px-8 py-3 sm:py-4 rounded-3xl font-semibold hover:bg-gray-100 transition-colors">
+                    <i class="fas fa-download"></i> Download My Bracket
+                </button>
+            </div>
+
+            <p class="text-zinc-500 text-xs sm:text-sm mb-4 sm:hidden">
+                <i class="fas fa-arrows-left-right mr-1"></i> Scroll sideways to see the full bracket
+            </p>
+
+            <div class="bracket-scroll">
+                <div id="bracket-container" class="bracket-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
